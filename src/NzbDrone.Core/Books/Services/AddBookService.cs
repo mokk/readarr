@@ -21,21 +21,27 @@ namespace NzbDrone.Core.Books
         private readonly IAuthorService _authorService;
         private readonly IAddAuthorService _addAuthorService;
         private readonly IBookService _bookService;
+        private readonly IEditionService _editionService;
         private readonly IProvideBookInfo _bookInfo;
+        private readonly ISearchForNewBook _searchForNewBook;
         private readonly IImportListExclusionService _importListExclusionService;
         private readonly Logger _logger;
 
         public AddBookService(IAuthorService authorService,
                                IAddAuthorService addAuthorService,
                                IBookService bookService,
+                               IEditionService editionService,
                                IProvideBookInfo bookInfo,
+                               ISearchForNewBook searchForNewBook,
                                IImportListExclusionService importListExclusionService,
                                Logger logger)
         {
             _authorService = authorService;
             _addAuthorService = addAuthorService;
             _bookService = bookService;
+            _editionService = editionService;
             _bookInfo = bookInfo;
+            _searchForNewBook = searchForNewBook;
             _importListExclusionService = importListExclusionService;
             _logger = logger;
         }
@@ -51,6 +57,20 @@ namespace NzbDrone.Core.Books
             if (dbBook != null)
             {
                 book.UseDbFieldsFrom(dbBook);
+
+                // Editions the book already has must keep their db ids, otherwise they
+                // would be inserted a second time and violate the unique edition constraint.
+                var dbEditions = _editionService.GetEditionsByBook(dbBook.Id).ToDictionary(x => x.ForeignEditionId);
+
+                foreach (var edition in book.Editions.Value)
+                {
+                    if (dbEditions.TryGetValue(edition.ForeignEditionId, out var dbEdition))
+                    {
+                        var monitored = edition.Monitored;
+                        edition.UseDbFieldsFrom(dbEdition);
+                        edition.Monitored = monitored;
+                    }
+                }
             }
 
             // Remove any import list exclusions preventing addition
@@ -123,7 +143,29 @@ namespace NzbDrone.Core.Books
             newBook.UseMetadataFrom(tuple.Item2);
             newBook.Added = DateTime.UtcNow;
 
-            newBook.Editions = tuple.Item2.Editions.Value;
+            var editions = tuple.Item2.Editions.Value;
+
+            // The metadata server only returns a subset of a work's editions, so the
+            // edition the user picked (e.g. a translation found via edition:<id>) may be
+            // missing from the work. Fetch it directly and add it to the list.
+            if (editions.All(x => x.ForeignEditionId != editionId))
+            {
+                var edition = _searchForNewBook.GetEditionByForeignEditionId(editionId);
+
+                if (edition == null)
+                {
+                    _logger.Error("Edition with Foreign Id {0} was not found for book {1}", editionId, newBook.ForeignBookId);
+
+                    throw new ValidationException(new List<ValidationFailure>
+                                                  {
+                                                      new ValidationFailure("GoodreadsId", "An edition with this ID was not found", editionId)
+                                                  });
+                }
+
+                editions.Add(edition);
+            }
+
+            newBook.Editions = editions;
             newBook.Editions.Value.ForEach(x => x.Monitored = false);
             newBook.Editions.Value.Single(x => x.ForeignEditionId == editionId).Monitored = true;
 

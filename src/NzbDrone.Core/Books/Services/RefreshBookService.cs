@@ -35,6 +35,7 @@ namespace NzbDrone.Core.Books
         private readonly IEditionService _editionService;
         private readonly IProvideAuthorInfo _authorInfo;
         private readonly IProvideBookInfo _bookInfo;
+        private readonly ISearchForNewBook _searchForNewBook;
         private readonly IRefreshEditionService _refreshEditionService;
         private readonly IMediaFileService _mediaFileService;
         private readonly IHistoryService _historyService;
@@ -51,6 +52,7 @@ namespace NzbDrone.Core.Books
                                   IAuthorMetadataService authorMetadataService,
                                   IProvideAuthorInfo authorInfo,
                                   IProvideBookInfo bookInfo,
+                                  ISearchForNewBook searchForNewBook,
                                   IRefreshEditionService refreshEditionService,
                                   IMediaFileService mediaFileService,
                                   IHistoryService historyService,
@@ -67,6 +69,7 @@ namespace NzbDrone.Core.Books
             _editionService = editionService;
             _authorInfo = authorInfo;
             _bookInfo = bookInfo;
+            _searchForNewBook = searchForNewBook;
             _refreshEditionService = refreshEditionService;
             _mediaFileService = mediaFileService;
             _historyService = historyService;
@@ -244,7 +247,43 @@ namespace NzbDrone.Core.Books
 
         protected override List<Edition> GetRemoteChildren(Book local, Book remote)
         {
-            return remote.Editions.Value.DistinctBy(m => m.ForeignEditionId).ToList();
+            var remoteEditions = remote.Editions.Value.DistinctBy(m => m.ForeignEditionId).ToList();
+
+            if (local.Id == 0)
+            {
+                return remoteEditions;
+            }
+
+            // The metadata server only returns a subset of a work's editions. Editions the
+            // user added manually or that have files must not be deleted just because they
+            // fell out of that subset, so fetch them directly (or keep the local copy).
+            var remoteIds = new HashSet<string>(remoteEditions.Select(x => x.ForeignEditionId));
+            var fileEditionIds = new HashSet<int>(_mediaFileService.GetFilesByBook(local.Id).Select(x => x.EditionId));
+
+            var missing = _editionService.GetEditionsByBook(local.Id)
+                .Where(x => !remoteIds.Contains(x.ForeignEditionId))
+                .Where(x => x.ManualAdd || fileEditionIds.Contains(x.Id))
+                .ToList();
+
+            foreach (var localEdition in missing)
+            {
+                var edition = _searchForNewBook.GetEditionByForeignEditionId(localEdition.ForeignEditionId);
+
+                if (edition == null)
+                {
+                    _logger.Debug("Edition {0} missing from metadata for {1}, keeping local copy", localEdition.ForeignEditionId, local);
+                    edition = localEdition;
+                }
+                else
+                {
+                    _logger.Trace("Edition {0} missing from work {1}, fetched directly", localEdition.ForeignEditionId, local);
+                    edition.Monitored = localEdition.Monitored;
+                }
+
+                remoteEditions.Add(edition);
+            }
+
+            return remoteEditions;
         }
 
         protected override List<Edition> GetLocalChildren(Book entity, List<Edition> remoteChildren)
@@ -298,7 +337,10 @@ namespace NzbDrone.Core.Books
                 return;
             }
 
-            var toMonitor = monitored.OrderByDescending(x => x.Id > 0 ? _mediaFileService.GetFilesByEdition(x.Id).Count : 0)
+            // An edition the user picked explicitly (e.g. a translation) beats whatever the
+            // metadata server currently flags as the primary edition of the work.
+            var toMonitor = monitored.OrderByDescending(x => x.ManualAdd)
+                .ThenByDescending(x => x.Id > 0 ? _mediaFileService.GetFilesByEdition(x.Id).Count : 0)
                 .ThenByDescending(x => x.Ratings.Popularity).First();
 
             monitored.ForEach(x => x.Monitored = false);

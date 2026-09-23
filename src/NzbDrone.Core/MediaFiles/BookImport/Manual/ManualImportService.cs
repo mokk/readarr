@@ -41,6 +41,7 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Manual
         private readonly IBookService _bookService;
         private readonly IEditionService _editionService;
         private readonly IProvideBookInfo _bookInfo;
+        private readonly ISearchForNewBook _searchForNewBook;
         private readonly IMetadataTagService _metadataTagService;
         private readonly IImportApprovedBooks _importApprovedBooks;
         private readonly ICustomFormatCalculationService _formatCalculator;
@@ -59,6 +60,7 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Manual
                                    IBookService bookService,
                                    IEditionService editionService,
                                    IProvideBookInfo bookInfo,
+                                   ISearchForNewBook searchForNewBook,
                                    IMetadataTagService metadataTagService,
                                    IImportApprovedBooks importApprovedBooks,
                                    ICustomFormatCalculationService formatCalculator,
@@ -77,6 +79,7 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Manual
             _bookService = bookService;
             _editionService = editionService;
             _bookInfo = bookInfo;
+            _searchForNewBook = searchForNewBook;
             _metadataTagService = metadataTagService;
             _importApprovedBooks = importApprovedBooks;
             _formatCalculator = formatCalculator;
@@ -330,6 +333,12 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Manual
                     {
                         var tuple = _bookInfo.GetBookInfo(book.ForeignBookId);
                         edition = tuple.Item2.Editions.Value.SingleOrDefault(x => x.ForeignEditionId == file.ForeignEditionId);
+                    }
+
+                    if (edition == null)
+                    {
+                        // Not part of the work's (trimmed) edition list, fetch it directly
+                        edition = _searchForNewBook.GetEditionByForeignEditionId(file.ForeignEditionId);
                     }
 
                     var fileRootFolder = _rootFolderService.GetBestRootFolder(file.Path);
