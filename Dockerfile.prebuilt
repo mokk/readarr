@@ -3,11 +3,14 @@
 #   dotnet msbuild -restore src/Readarr.sln -p:Configuration=Release -p:Platform=Posix \
 #     -p:RuntimeIdentifiers=linux-musl-x64 -t:PublishAllRids
 #   yarn install && yarn run build --env production
-# and packaged into _artifacts/linux-musl-x64/net6.0/Readarr (see build.sh PackageLinux).
+# and packaged into _artifacts/<rid>/net6.0/Readarr (see build.sh PackageLinux).
+# Pass --build-arg RID=linux-musl-arm64 (with -p:RuntimeIdentifiers=linux-musl-arm64) for arm64.
 # Mirrors the runtime stage of the upstream Dockerfile. Used because compiling
 # inside an emulated amd64 container segfaults under Rosetta on Apple Silicon.
 FROM docker.io/library/alpine:3.22
 
+# Runtime identifier the artifacts were published for (linux-musl-x64 or linux-musl-arm64).
+ARG RID=linux-musl-x64
 ARG VERSION
 ARG BRANCH=develop
 ARG VENDOR=mokk
@@ -33,7 +36,7 @@ RUN apk add --no-cache \
     && mkdir -p /app/bin \
     && chown -R root:root /app && chmod -R 755 /app
 
-COPY _artifacts/linux-musl-x64/net6.0/Readarr /app/bin/
+COPY _artifacts/${RID}/net6.0/Readarr /app/bin/
 
 RUN rm -rf /app/bin/Readarr.Update
 
