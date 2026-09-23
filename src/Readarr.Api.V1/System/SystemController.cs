@@ -55,7 +55,7 @@ namespace Readarr.Api.V1.System
         }
 
         // Keep in step with the endpoints that exist only in this fork.
-        public static readonly List<string> ForkFeatures = new List<string> { "bookFileDownload" };
+        public static readonly List<string> ForkFeatures = new List<string> { "bookFileDownload", "bookLookupDetails" };
 
         [HttpGet("status")]
         public SystemResource GetStatus()

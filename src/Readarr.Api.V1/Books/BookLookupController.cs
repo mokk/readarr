@@ -3,6 +3,7 @@ using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using NzbDrone.Core.MediaCover;
 using NzbDrone.Core.MetadataSource;
+using Readarr.Api.V1.Author;
 using Readarr.Http;
 
 namespace Readarr.Api.V1.Books
@@ -31,6 +32,12 @@ namespace Readarr.Api.V1.Books
             foreach (var currentBook in books)
             {
                 var resource = currentBook.ToResource();
+
+                // Upstream leaves these off lookup results; clients that pick
+                // an edition (language, format) need the whole list, and the
+                // add call needs the author. Advertised as bookLookupDetails.
+                resource.Author = currentBook.Author?.Value?.ToResource();
+                resource.Editions = currentBook.Editions?.Value?.ToResource() ?? new List<EditionResource>();
 
                 _coverMapper.ConvertToLocalUrls(resource.Id, MediaCoverEntity.Book, resource.Images);
 
