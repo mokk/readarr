@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# Runtime-only image built from artifacts published on the host with
+#   dotnet msbuild -restore src/Readarr.sln -p:Configuration=Release -p:Platform=Posix \
+#     -p:RuntimeIdentifiers=linux-musl-x64 -t:PublishAllRids
+#   yarn install && yarn run build --env production
+# and packaged into _artifacts/linux-musl-x64/net6.0/Readarr (see build.sh PackageLinux).
+# Mirrors the runtime stage of the upstream Dockerfile. Used because compiling
+# inside an emulated amd64 container segfaults under Rosetta on Apple Silicon.
+FROM docker.io/library/alpine:3.22
+
+ARG VERSION
+ARG BRANCH=develop
+ARG VENDOR=mokk
+ARG PackageOwner=mokk
+ARG PackageRepo=readarr
+
+ENV COMPlus_EnableDiagnostics=0 \
+    READARR__UPDATE__BRANCH=${BRANCH}
+
+USER root
+WORKDIR /app
+
+RUN apk add --no-cache \
+        bash \
+        ca-certificates \
+        catatonit \
+        coreutils \
+        icu-libs \
+        libintl \
+        nano \
+        sqlite-libs \
+        tzdata \
+    && mkdir -p /app/bin \
+    && chown -R root:root /app && chmod -R 755 /app
+
+COPY _artifacts/linux-musl-x64/net6.0/Readarr /app/bin/
+
+RUN rm -rf /app/bin/Readarr.Update
+
+RUN printf "UpdateMethod=docker\nBranch=%s\nPackageVersion=%s\nPackageAuthor=[%s](https://github.com/%s)\nPackageOwner=%s\nPackageRepo=%s\n" "${READARR__UPDATE__BRANCH}" "${VERSION}" "${VENDOR}" "${VENDOR}" "${PackageOwner}" "${PackageRepo}" > /app/package_info
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER nobody:nogroup
+WORKDIR /config
+VOLUME ["/config"]
+ENTRYPOINT ["/usr/bin/catatonit", "--", "/entrypoint.sh"]
