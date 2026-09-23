@@ -3,6 +3,9 @@ using System.IO;
 using System.IO.Abstractions;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.StaticFiles;
+using NzbDrone.Common.Disk;
+using NzbDrone.Common.Extensions;
 using NzbDrone.Core.Books;
 using NzbDrone.Core.Datastore.Events;
 using NzbDrone.Core.DecisionEngine.Specifications;
@@ -30,6 +33,8 @@ namespace Readarr.Api.V1.BookFiles
         private readonly IAuthorService _authorService;
         private readonly IBookService _bookService;
         private readonly IUpgradableSpecification _upgradableSpecification;
+        private readonly IDiskProvider _diskProvider;
+        private readonly IContentTypeProvider _contentTypeProvider;
 
         public BookFileController(IBroadcastSignalRMessage signalRBroadcaster,
                                IMediaFileService mediaFileService,
@@ -37,7 +42,8 @@ namespace Readarr.Api.V1.BookFiles
                                IMetadataTagService metadataTagService,
                                IAuthorService authorService,
                                IBookService bookService,
-                               IUpgradableSpecification upgradableSpecification)
+                               IUpgradableSpecification upgradableSpecification,
+                               IDiskProvider diskProvider)
             : base(signalRBroadcaster)
         {
             _mediaFileService = mediaFileService;
@@ -46,6 +52,18 @@ namespace Readarr.Api.V1.BookFiles
             _authorService = authorService;
             _bookService = bookService;
             _upgradableSpecification = upgradableSpecification;
+            _diskProvider = diskProvider;
+            _contentTypeProvider = new FileExtensionContentTypeProvider
+            {
+                Mappings =
+                {
+                    [".epub"] = "application/epub+zip",
+                    [".mobi"] = "application/x-mobipocket-ebook",
+                    [".azw3"] = "application/vnd.amazon.mobi8-ebook",
+                    [".azw"] = "application/vnd.amazon.ebook",
+                    [".m4b"] = "audio/mp4"
+                }
+            };
         }
 
         private BookFileResource MapToResource(BookFile bookFile)
@@ -106,6 +124,28 @@ namespace Readarr.Api.V1.BookFiles
                 var bookFiles = _mediaFileService.Get(bookFileIds);
                 return bookFiles.ConvertAll(e => MapToResource(e));
             }
+        }
+
+        // Serves the file itself, so a client such as arrdeck can hand a book to
+        // a reader without a mount of the library. Advertised through
+        // /system/status forkFeatures ("bookFileDownload"); the upstream API has
+        // no equivalent. Range requests let a large download resume.
+        [HttpGet("{id:int}/download")]
+        public IActionResult Download(int id)
+        {
+            var bookFile = _mediaFileService.Get(id);
+
+            if (bookFile.Path.IsNullOrWhiteSpace() || !_diskProvider.FileExists(bookFile.Path))
+            {
+                return NotFound();
+            }
+
+            if (!_contentTypeProvider.TryGetContentType(bookFile.Path, out var contentType))
+            {
+                contentType = "application/octet-stream";
+            }
+
+            return PhysicalFile(bookFile.Path, contentType, Path.GetFileName(bookFile.Path), enableRangeProcessing: true);
         }
 
         [RestPutById]

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -53,6 +54,9 @@ namespace Readarr.Api.V1.System
             _detector = detector;
         }
 
+        // Keep in step with the endpoints that exist only in this fork.
+        public static readonly List<string> ForkFeatures = new List<string> { "bookFileDownload" };
+
         [HttpGet("status")]
         public SystemResource GetStatus()
         {
@@ -78,6 +82,7 @@ namespace Readarr.Api.V1.System
                 Mode = _runtimeInfo.Mode,
                 Branch = _configFileProvider.Branch,
                 Authentication = _configFileProvider.AuthenticationMethod,
+                ForkFeatures = ForkFeatures,
                 DatabaseType = _database.DatabaseType,
                 DatabaseVersion = _database.Version,
                 MigrationVersion = _database.Migration,

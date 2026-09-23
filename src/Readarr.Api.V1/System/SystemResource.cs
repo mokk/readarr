@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using NzbDrone.Common.EnvironmentInfo;
 using NzbDrone.Core.Authentication;
 using NzbDrone.Core.Datastore;
@@ -39,5 +40,9 @@ namespace Readarr.Api.V1.System
         public string PackageAuthor { get; set; }
         public UpdateMechanism PackageUpdateMechanism { get; set; }
         public string PackageUpdateMechanismMessage { get; set; }
+
+        // Capabilities this fork adds over upstream Readarr, so a client can
+        // offer them only when talking to a build that has them.
+        public List<string> ForkFeatures { get; set; }
     }
 }
